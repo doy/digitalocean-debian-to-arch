@@ -49,6 +49,21 @@ netmask_to_prefix() {
 	done
 }
 
+do_curl() {
+	local retry
+	local result
+	for retry in {1..20}; do
+		if result=$(curl -sf -m 1 ${1}); then
+			log "Got a result of ${result} from a query of ${1}"
+			echo ${result}
+			break
+		else
+			log "Unable get result for ${1}"
+			sleep 1
+		fi
+	done
+}
+
 update_shadow_if_changed() {
 	local etcdir=$1/etc
 	mkdir -p ${etcdir} || return 0
@@ -76,8 +91,8 @@ update_shadow_if_changed() {
 process_interface() {
 	local url=$1
 	local attrs=$2
-	local mac=$(curl -Ssf ${url}mac)
-	local type=$(curl -Ssf ${url}type)
+	local mac=$(do_curl ${url}mac)
+	local type=$(do_curl ${url}type)
 	local interface=
 	local cand path
 	for cand in $(ls /sys/class/net); do
@@ -97,26 +112,28 @@ process_interface() {
 			[Network]
 		EOF
 		if [[ " ${attrs} " =~ " ipv4/ " ]]; then
-			local address=$(curl -sf ${url}ipv4/address)
-			local prefix=$(netmask_to_prefix $(curl -sf ${url}ipv4/netmask))
+
+			local netmask=$(do_curl ${url}ipv4/netmask)
+			local address=$(do_curl ${url}ipv4/address)
+			local prefix=$(netmask_to_prefix ${netmask})
 			echo "Address=${address}/${prefix}"
 			if [ "${type}" != "private" ]; then
-				echo "Gateway=$(curl -sf ${url}ipv4/gateway)"
+				echo "Gateway=$(do_curl ${url}ipv4/gateway)"
 			fi
 			log "Added IPv4 address ${address}/${prefix} on ${interface}."
 		fi
 		if [[ " ${attrs} " =~ " anchor_ipv4/ " ]]; then
-			local address=$(curl -sf ${url}anchor_ipv4/address)
-			local prefix=$(netmask_to_prefix $(curl -sf ${url}anchor_ipv4/netmask))
+			local address=$(do_curl ${url}anchor_ipv4/address)
+			local prefix=$(netmask_to_prefix $(do_curl ${url}anchor_ipv4/netmask))
 			echo "Address=${address}/${prefix}"
 			log "Added Anchor IPv4 address ${address}/${prefix} on ${interface}."
 		fi
 		if [[ " ${attrs} " =~ " ipv6/ " ]]; then
-			local address=$(curl -sf ${url}ipv6/address)
-			local prefix=$(curl -sf ${url}ipv6/cidr)
+			local address=$(do_curl ${url}ipv6/address)
+			local prefix=$(do_curl ${url}ipv6/cidr)
 			echo "Address=${address}/${prefix}"
 			if [ "${type}" != "private" ]; then
-				echo "Gateway=$(curl -sf ${url}ipv6/gateway)"
+				echo "Gateway=$(do_curl ${url}ipv6/gateway)"
 			fi
 			log "Added IPv6 address ${address}/${prefix} on ${interface}."
 		fi
@@ -130,7 +147,7 @@ process_interface() {
 
 traverse_interfaces() {
 	local url=$1
-	set -- $(curl -Ssf ${url})
+	set -- $(do_curl ${url})
 	if [[ " $* " =~ " mac " ]]; then
 		process_interface ${url} "$*"
 	else
@@ -145,7 +162,7 @@ traverse_interfaces() {
 
 setup_from_metadata_service() {
 	local sshkeys
-	if sshkeys=$(curl -Ssf ${meta_base}public-keys) && test -n "${sshkeys}"; then
+	if sshkeys=$(do_curl ${meta_base}public-keys) && test -n "${sshkeys}"; then
 		[ -d /root/.ssh ] || mkdir -m 0700 /root/.ssh
 		[ -e /root/.ssh/authorized_keys ] || touch /root/.ssh/authorized_keys
 		if ! grep -q "${sshkeys}" /root/.ssh/authorized_keys; then
@@ -154,7 +171,7 @@ setup_from_metadata_service() {
 		fi
 	fi
 	local hostname
-	if ! test -e /etc/hostname && hostname=$(curl -Ssf ${meta_base}hostname); then
+	if ! test -e /etc/hostname && hostname=$(do_curl ${meta_base}hostname); then
 		echo "${hostname}" > /etc/hostname
 		hostname "${hostname}"
 		log "Hostname set to ${hostname} from metadata service."
@@ -176,7 +193,7 @@ digitalocean_synchronize() {
 	local retry
 	for retry in {1..20}; do
 		log "Attempting to connect to metadata service ..."
-		if curl -Ssf -m 1 ${meta_base} >/dev/null; then
+		if curl -sf -m 1 ${meta_base} >/dev/null; then
 			setup_from_metadata_service
 			break
 		else
