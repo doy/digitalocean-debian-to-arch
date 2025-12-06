@@ -511,6 +511,12 @@ stage1_install() {
 	chroot /d2a/work/archroot systemctl enable sshd.service
 
 	log "Forcing fallback kernel ..." # cannot trust autodetect when running on Debian kernel
+	sed -i 's/^PRESETS=/#&/' /d2a/work/archroot/etc/mkinitcpio.d/linux.preset
+	sed -i 's/^#\(PRESETS=.*fallback\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/linux.preset
+	sed -i 's/^#\(fallback_image=\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/linux.preset
+	sed -i 's/^#\(fallback_options=\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/linux.preset
+	sed -i 's/sd-vconsole //' /d2a/work/archroot/etc/mkinitcpio.conf
+	chroot /d2a/work/archroot mkinitcpio -P
 	cp /d2a/work/archroot/boot/initramfs-${kernel_package}{-fallback,}.img
 
 	log "Installing digitalocean-synchronize ..."
